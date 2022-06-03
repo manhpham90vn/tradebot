@@ -7,28 +7,35 @@ const dotenv = require('dotenv')
 dotenv.config()
 
 // cons
-const STEP = 5
-const TRADE_SIZE = 100
-const COIN = 'ETH/USDT'
+const STEP_MINUS_1M = 60
+const STEP = 10
+const COIN = 'GMT/USDT'
+const PROFIT_PRICE = 0.2
+const STOP_LOSS = -0.1
+var currentDirection = null
 
 // api key
-const binace = new ccxt.binance({
+const binanceExchange = new ccxt.binanceusdm({
     apiKey: process.env.APIKEY,
-    secret: process.env.SECRET
+    secret: process.env.SECRET,
+    options: {
+        'defaultType': 'future' 
+    },
+    rateLimit: true
 });
 
-binace.setSandboxMode(true)
+async function getInfo() {
+    // load markets
+    await binanceExchange.loadMarkets()
 
-async function getBalance(btcPrice) {
-    const balance = await binace.fetchBalance();
-    const total = balance.total
-    console.log(`Balance: ETH ${total.ETH}, USDT: ${total.USDT}`)
-    console.log(`Total USDT: ${total.ETH * btcPrice + total.USDT} \n`)
-}
+    // get total usdt
+    const balance = await binanceExchange.fetchBalance();
+    const totalUSDT = balance.total.USDT
+    console.log(`Total USDT: ${totalUSDT}`)
 
-async function tick() {
-    const price = await binace.fetchOHLCV(COIN, '1m', undefined, STEP);
-    const bPrices = price.map(price => {
+    // analytics in 60m
+    const priceResponse = await binanceExchange.fetchOHLCV(COIN, '1m', undefined, STEP_MINUS_1M)
+    const priceObject = priceResponse.map(price => {
         return {
             timestamp: moment(price[0]).format(),
             open: price[1],
@@ -38,20 +45,50 @@ async function tick() {
             volume: price[5]
         }
     })
-    const averagePrice = bPrices.reduce((acc, price) => acc + price.close, 0) / STEP
-    const lastPrice = bPrices[bPrices.length - 1].close
-    const direction = lastPrice > averagePrice ? 'sell' : 'buy'
-    console.log(`Average price: ${averagePrice}. Last Price: ${lastPrice}`)
-    const QUANTILY = TRADE_SIZE / lastPrice
-    const order = await binace.createMarketOrder(COIN, direction, QUANTILY)
-    console.log(`${moment().format()}: ${direction} ${QUANTILY} ${COIN} at ${lastPrice}`)
-    getBalance(lastPrice)
+    const hight = Math.max(...priceObject.map(e => e.hight))
+    const low = Math.min(...priceObject.map(e => e.low))
+    const average = (hight + low) / 2
+    const lastPrice = priceObject[priceResponse.length - 1].close
+    console.log(`Hight: ${hight} Low: ${low} Average: ${average} Current: ${lastPrice}`)
+
+    // get positions
+    const positions = balance.info.positions
+    var hadPosition = false
+    for (let i = 0; i < positions.length; i++) {
+        const position = positions[i]
+        if (position.positionAmt > 0) {
+            console.log(position)
+            hadPosition = true
+            let unrealizedProfit = position.unrealizedProfit
+            if (unrealizedProfit >= PROFIT_PRICE || unrealizedProfit >= -STOP_LOSS) {
+                close(position.notional)
+            }
+            break
+        }
+        hadPosition = false
+    }
+    if (!hadPosition) {
+        order(totalUSDT, average, lastPrice)
+    }
+}
+
+async function order(totalUSDT, average, lastPrice) {
+     const direction = lastPrice > average ? 'sell' : 'buy'
+     currentDirection = direction
+     const order = await binanceExchange.createOrder(COIN, 'market', direction, totalUSDT * STEP)
+     console.log(order)
+}
+
+async function close(notional) {
+    newDirection = currentDirection == 'sell' ? 'buy' : 'sell'
+    const order = await binanceExchange.createOrder(COIN, 'market', newDirection, notional)
 }
 
 async function main() {
     while (true) {
-        await tick()
-        await delay(60 * 1000)
+        await getInfo()
+        await delay(3000)
+        console.log(`------------------------------------------------------------`)
     }
 }
 
