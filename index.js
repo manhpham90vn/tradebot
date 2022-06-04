@@ -117,12 +117,14 @@ async function getInfo() {
             console.log(position)
             let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
+            // calc take profit price and slot loss price based in settings
             let takeProfitPrice = positionSide == POSITION_SIDE.LONG ? result1M.lastPrice * (1 + PROFIT_PRICE / 100) : result1M.lastPrice * (1 - PROFIT_PRICE / 100)
             let slotLossPrice = positionSide == POSITION_SIDE.LONG ? result1M.lastPrice * (1 - STOP_LOSS / 100) : result1M.lastPrice * (1 + STOP_LOSS / 100)
+            // condition to trigger take profit or stop loss action
             let takeProfit = result1H.lastPrice >= takeProfitPrice
             let stopLoss = result1H.lastPrice <= slotLossPrice
-            console.log(`Symbol: ${position.symbol} Profit: ${unrealizedProfit} EntryPrice: ${position.entryPrice} Isolated: ${position.isolated} Leverage: ${position.leverage}X`)
-            console.log(`Symbol: ${position.symbol} Position Side: ${positionSide} TakeProfitPrice: ${takeProfitPrice} TakeProfit: ${takeProfit} StopLosstPrice: ${slotLossPrice} StopLoss: ${stopLoss}`)
+            console.log(`Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
+            console.log(`Symbol: ${position.symbol} - TakeProfitPrice: ${takeProfitPrice} - TakeProfit: ${takeProfit} - StopLosstPrice: ${slotLossPrice} - StopLoss: ${stopLoss}`)
             hadPosition = true
             if (takeProfit || stopLoss) {
                 await order(position.initialMargin * position.leverage, SIDE.SELL, positionSide)
@@ -153,7 +155,7 @@ async function analytics(SYMBOL, time, COUNT) {
     const low = Math.min(...priceObject.map(e => e.low))
     const lastPrice = priceObject[priceResponse.length - 1].close
     const average = (hight + low) / 2
-    console.log(`Time: ${time} Hight: ${hight} Low: ${low} Average: ${average} Current: ${lastPrice}`)
+    console.log(`Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
     return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
@@ -162,7 +164,6 @@ async function order(amount, side, position_side) {
         console.log(`order with ${SYMBOL} ${amount} ${side} ${position_side}`)
         const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
         console.log(order)
-        binanceExchange.futures_create_order
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
             console.log(binanceExchange.id, 'order failed due to a network error:', error.message)
@@ -176,6 +177,7 @@ async function order(amount, side, position_side) {
 
 async function main() {
     while (true) {
+        console.clear()
         await getInfo()
         await delay(DELAY)
         console.log(`------------------------------------------------------------`)
