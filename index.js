@@ -125,11 +125,11 @@ async function getInfo() {
             let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
             // calc take profit price and slot loss price based in settings
-            let takeProfitPrice = positionSide == POSITION_SIDE.LONG ? result1M.lastPrice * (1 + PROFIT_PRICE / 100) : result1M.lastPrice * (1 - PROFIT_PRICE / 100)
-            let slotLossPrice = positionSide == POSITION_SIDE.LONG ? result1M.lastPrice * (1 - STOP_LOSS / 100) : result1M.lastPrice * (1 + STOP_LOSS / 100)
+            let takeProfitPrice = positionSide == POSITION_SIDE.LONG ? position.entryPrice * (1 + PROFIT_PRICE / 100) : position.entryPrice * (1 - PROFIT_PRICE / 100)
+            let slotLossPrice = positionSide == POSITION_SIDE.LONG ? position.entryPrice * (1 - STOP_LOSS / 100) : position.entryPrice * (1 + STOP_LOSS / 100)
             // condition to trigger take profit or stop loss action
-            let takeProfit = result1H.lastPrice >= takeProfitPrice
-            let stopLoss = result1H.lastPrice <= slotLossPrice
+            let takeProfit = result1M.lastPrice >= takeProfitPrice
+            let stopLoss = result1M.lastPrice <= slotLossPrice
             log(`Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
             log(`Symbol: ${position.symbol} - TakeProfitPrice: ${takeProfitPrice} - TakeProfit: ${takeProfit} - StopLosstPrice: ${slotLossPrice} - StopLoss: ${stopLoss}`)
             hadPosition = true
