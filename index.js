@@ -190,7 +190,7 @@ function sendLog() {
     if (messageId == null) {
         return
     }
-    bot.sendMessage(messageId, messageToSend ?? 'NOT HAVE MESSAGE')
+    bot.sendMessage(messageId, messageToSend)
 }
 
 function clearLog() {
