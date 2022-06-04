@@ -2,9 +2,17 @@ const ccxt = require('ccxt')
 const moment = require('moment')
 const delay = require('delay')
 const dotenv = require('dotenv')
+const telegramBot = require('node-telegram-bot-api');
+
+// pm2 start index.js
+// pm2 stop index.js
 
 // config env
 dotenv.config()
+
+const bot = new telegramBot(process.env.TELEGRAM, { polling: true });
+var messageId = null
+var messageToSend = ''
 
 // cons
 const SYMBOL = 'GMT/USDT'
@@ -72,11 +80,11 @@ async function getInfo() {
         })
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            console.log(binanceExchange.id, 'setHedgedMode failed due to a network error:', error.message)
+            log(`setHedgedMode failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            console.log(binanceExchange.id, 'setHedgedMode failed due to exchange error:', error.message)
+            log(`setHedgedMode failed due to exchange error: ${error.message}`)
         } else {
-            console.log(binanceExchange.id, 'setHedgedMode failed with:', error.message)
+            log(`setHedgedMode failed with: ${error.message}`)
         }
     }
 
@@ -88,19 +96,19 @@ async function getInfo() {
         })
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            console.log(binanceExchange.id, 'setMarginType failed due to a network error:', error.message)
+            log(`setMarginType failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            console.log(binanceExchange.id, 'setMarginType failed due to exchange error:', error.message)
+            log(`setMarginType failed due to exchange error: ${error.message}`)
         } else {
-            console.log(binanceExchange.id, 'setMarginType failed with:', error.message)
+            log(`setMarginType failed with: ${error.message}`)
         }
     }
 
     // get total usdt
     const balance = await binanceExchange.fetchBalance();
     const totalUSDT = balance.total.USDT
-    console.log(`Date: ${Date()}`)
-    console.log(`Total USDT: ${totalUSDT}`)
+    log(`Date: ${Date()}`)
+    log(`Total USDT: ${totalUSDT}`)
 
     // analytics
     const result1M = await analytics(SYMBOL, TIME.oneMinute, COUNT_DATA.oneMinute)
@@ -114,7 +122,6 @@ async function getInfo() {
         const position = positions[i]
         // skip if current position is very small
         if (position.symbol == market.id && position.initialMargin > 5) {
-            console.log(position)
             let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
             // calc take profit price and slot loss price based in settings
@@ -123,8 +130,8 @@ async function getInfo() {
             // condition to trigger take profit or stop loss action
             let takeProfit = result1H.lastPrice >= takeProfitPrice
             let stopLoss = result1H.lastPrice <= slotLossPrice
-            console.log(`Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
-            console.log(`Symbol: ${position.symbol} - TakeProfitPrice: ${takeProfitPrice} - TakeProfit: ${takeProfit} - StopLosstPrice: ${slotLossPrice} - StopLoss: ${stopLoss}`)
+            log(`Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
+            log(`Symbol: ${position.symbol} - TakeProfitPrice: ${takeProfitPrice} - TakeProfit: ${takeProfit} - StopLosstPrice: ${slotLossPrice} - StopLoss: ${stopLoss}`)
             hadPosition = true
             if (takeProfit || stopLoss) {
                 await order(position.initialMargin * position.leverage, SIDE.SELL, positionSide)
@@ -155,32 +162,57 @@ async function analytics(SYMBOL, time, COUNT) {
     const low = Math.min(...priceObject.map(e => e.low))
     const lastPrice = priceObject[priceResponse.length - 1].close
     const average = (hight + low) / 2
-    console.log(`Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
+    log(`Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
     return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
 async function order(amount, side, position_side) {
     try {
-        console.log(`order with ${SYMBOL} ${amount} ${side} ${position_side}`)
+        log(`order with ${SYMBOL} ${amount} ${side} ${position_side}`)
         const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
-        console.log(order)
+        log(order)
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            console.log(binanceExchange.id, 'order failed due to a network error:', error.message)
+            log(`order failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            console.log(binanceExchange.id, 'order failed due to exchange error:', error.message)
+            log(`order failed due to exchange error: ${error.message}`)
         } else {
-            console.log(binanceExchange.id, 'order failed with:', error.message)
+            log(`order failed with: ${error.message}`)
         }
     }
 }
 
+function log(message) {
+    messageToSend += message + '\n'
+}
+
+function sendLog() {
+    if (messageId == null) {
+        return
+    }
+    bot.sendMessage(messageId, messageToSend ?? 'NOT HAVE MESSAGE')
+}
+
+function clearLog() {
+    messageToSend = ''
+}
+
 async function main() {
+    bot.on('message', (msg) => {
+        let startCommand = 'start'
+        let endCommand = 'end'
+        if (msg.text.toString().toLowerCase().indexOf(startCommand) === 0) {
+            messageId = msg.chat.id
+        }
+        if (msg.text.toString().toLowerCase().indexOf(endCommand) === 0) {
+            messageId = null
+        }
+    })
     while (true) {
-        console.clear()
+        clearLog()
         await getInfo()
         await delay(DELAY)
-        console.log(`------------------------------------------------------------`)
+        sendLog()
     }
 }
 
