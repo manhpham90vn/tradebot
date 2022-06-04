@@ -7,7 +7,7 @@ const dotenv = require('dotenv')
 dotenv.config()
 
 // cons
-const SYMBOL = 'BTC/USDT'
+const SYMBOL = 'GMT/USDT'
 const ENABLE_TRADE = true
 const LEVERAGE = 10 // lever in 1x to 125x
 const DELAY = 3000 // 3s
@@ -52,10 +52,10 @@ async function getInfo() {
     try {
         const setMarginType = await binanceExchange.fapiPrivatePostMarginType({
             'symbol': market.id,
-            'marginType': MARGINTYPE.cross
+            'marginType': MARGINTYPE.isolated
         })
-    } catch(error) {
-        // ignore error here
+    } catch (error) {
+        console.log("setMarginType error", error.name)
     }
 
     // get total usdt
@@ -64,7 +64,7 @@ async function getInfo() {
     console.log(`Date: ${Date()}`)
     console.log(`Total USDT: ${totalUSDT}`)
 
-    // analytics in 60m
+    // analytics
     const result1M = await analytics(SYMBOL, TIME.oneMinute, COUNT_DATA.oneMinute)
     const result1H = await analytics(SYMBOL, TIME.oneHour, COUNT_DATA.oneHour)
     const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
@@ -74,19 +74,18 @@ async function getInfo() {
     var hadPosition = false
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
-        if (position.positionAmt > 0) {
+        if (position.positionAmt != 0) {
             console.log(position)
             hadPosition = true
             let unrealizedProfit = position.unrealizedProfit
             if (unrealizedProfit >= PROFIT_PRICE || unrealizedProfit >= STOP_LOSS) {
-                binanceExchange.cancelAllOrders(SYMBOL)
+                await binanceExchange.cancelAllOrders(SYMBOL)
             }
             break
         }
-        hadPosition = false
     }
     if (!hadPosition && ENABLE_TRADE) {
-        order(totalUSDT, result1M.average, result1M.lastPrice)
+        await order(totalUSDT, result1M.average, result1M.lastPrice)
     }
 }
 
@@ -111,10 +110,15 @@ async function analytics(SYMBOL, time, COUNT) {
 }
 
 async function order(totalUSDT, average, lastPrice) {
-    const amount = 0.9 * totalUSDT * LEVERAGE
+    const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
     const direction = lastPrice > average ? 'sell' : 'buy'
-    const order = await binanceExchange.createOrder(SYMBOL, 'market', direction, amount)
-    console.log(order)
+    try {
+        console.log(`order with ${SYMBOL} ${direction} ${amount}`)
+        const order = await binanceExchange.createOrder(SYMBOL, 'market', direction, amount)
+        console.log(order)
+    } catch (error) {
+        console.log("order error", error.name)
+    }
 }
 
 async function main() {
