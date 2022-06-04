@@ -28,10 +28,18 @@ const MARGINTYPE = {
     isolated: 'ISOLATED'
 }
 
-const PROFIT_PRICE = 0.5
-const STOP_LOSS = -0.2
-var lastAmount = null
-var lastDirection = null
+const SIDE = {
+    BUY: 'buy',
+    SELL: 'sell'
+}
+
+const POSITION_SIDE = {
+    LONG: 'LONG',
+    SHORT: 'SHORT'
+}
+
+const PROFIT_PRICE = 2 // 2%
+const STOP_LOSS = 1 // 1%
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -46,11 +54,33 @@ const binanceExchange = new ccxt.binanceusdm({
 async function getInfo() {
     // load markets and settings for trade
     const markets = await binanceExchange.loadMarkets()
+
+    // select ${SYMBOL}
     const market = await binanceExchange.market(SYMBOL)
+
+    // set leverage
     const setLeverage = await binanceExchange.fapiPrivatePostLeverage({
         'symbol': market.id,
         'leverage': LEVERAGE,
     })
+
+    // set hedged mode
+    try {
+        const setHedgedMode = await binanceExchange.setPositionMode({
+            'hedged': true,
+            symbol: SYMBOL
+        })
+    } catch (error) {
+        if (error instanceof ccxt.NetworkError) {
+            console.log(binanceExchange.id, 'setHedgedMode failed due to a network error:', error.message)
+        } else if (error instanceof ccxt.ExchangeError) {
+            console.log(binanceExchange.id, 'setHedgedMode failed due to exchange error:', error.message)
+        } else {
+            console.log(binanceExchange.id, 'setHedgedMode failed with:', error.message)
+        }
+    }
+
+    // set marginType
     try {
         const setMarginType = await binanceExchange.fapiPrivatePostMarginType({
             'symbol': market.id,
@@ -79,29 +109,31 @@ async function getInfo() {
 
     // get positions
     const positions = balance.info.positions
-    const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
     var hadPosition = false
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
-        if (position.positionAmt != 0) {
+        // skip if current position is very small
+        if (position.symbol == market.id && position.initialMargin > 5) {
+            console.log(position)
             let unrealizedProfit = position.unrealizedProfit
-            let takeProfit = unrealizedProfit >= PROFIT_PRICE
-            let stopLoss = unrealizedProfit <= STOP_LOSS
+            let positionSide = position.positionSide
+            let takeProfitPrice = positionSide == POSITION_SIDE.LONG ? result1M.lastPrice * (1 + PROFIT_PRICE / 100) : result1M.lastPrice * (1 - PROFIT_PRICE / 100)
+            let slotLossPrice = positionSide == POSITION_SIDE.LONG ? result1M.lastPrice * (1 - STOP_LOSS / 100) : result1M.lastPrice * (1 + STOP_LOSS / 100)
+            let takeProfit = result1H.lastPrice >= takeProfitPrice
+            let stopLoss = result1H.lastPrice <= slotLossPrice
             console.log(`Symbol: ${position.symbol} Profit: ${unrealizedProfit} EntryPrice: ${position.entryPrice} Isolated: ${position.isolated} Leverage: ${position.leverage}X`)
-            console.log(`Symbol: ${position.symbol} takeProfit: ${takeProfit} stopLoss: ${stopLoss}`)
+            console.log(`Symbol: ${position.symbol} Position Side: ${positionSide} TakeProfitPrice: ${takeProfitPrice} TakeProfit: ${takeProfit} StopLosstPrice: ${slotLossPrice} StopLoss: ${stopLoss}`)
             hadPosition = true
             if (takeProfit || stopLoss) {
-                const direction = lastDirection == 'sell' ? 'buy' : 'sell'
-                await order(lastAmount, direction)
+                await order(position.initialMargin * position.leverage, SIDE.SELL, positionSide)
             }
             break
         }
     }
     if (!hadPosition && ENABLE_TRADE) {
-        const direction = result1M.average > result1M.lastPrice ? 'sell' : 'buy'
-        lastDirection == direction
-        lastAmount = amount
-        await order(lastAmount, lastDirection)
+        const direction = result1M.average > result1M.lastPrice ? POSITION_SIDE.SHORT : POSITION_SIDE.LONG
+        const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
+        await order(amount, SIDE.BUY, direction)
     }
 }
 
@@ -125,11 +157,12 @@ async function analytics(SYMBOL, time, COUNT) {
     return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
-async function order(amount, direction) {
+async function order(amount, side, position_side) {
     try {
-        console.log(`order with ${SYMBOL} ${direction} ${amount}`)
-        const order = await binanceExchange.createOrder(SYMBOL, 'market', direction, amount)
+        console.log(`order with ${SYMBOL} ${amount} ${side} ${position_side}`)
+        const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
         console.log(order)
+        binanceExchange.futures_create_order
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
             console.log(binanceExchange.id, 'order failed due to a network error:', error.message)
