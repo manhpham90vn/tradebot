@@ -7,14 +7,29 @@ const dotenv = require('dotenv')
 dotenv.config()
 
 // cons
-const SYMBOL = 'GMT/USDT'
-const ENABLE_TRADE = false
-const LEVERAGE = 10
+const SYMBOL = 'BTC/USDT'
+const ENABLE_TRADE = true
+const LEVERAGE = 10 // lever in 1x to 125x
 const DELAY = 3000 // 3s
+const TIME = {
+    oneMinute: '1m',
+    oneHour: '1h',
+    fourHour: '4h'
+}
 
-const COUNT_DATA_ONE_MINUTE = 5
-const PROFIT_PRICE = 2
-const STOP_LOSS = 2
+const COUNT_DATA = {
+    oneMinute: 1 * 60, // 1 hour
+    oneHour: 1 * 24, // 1 day
+    fourHour: 1 * 6 * 3 // 3 day
+}
+
+const MARGINTYPE = {
+    cross: 'CROSSED',
+    isolated: 'ISOLATED'
+}
+
+const PROFIT_PRICE = 0.5
+const STOP_LOSS = -0.2
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -30,21 +45,29 @@ async function getInfo() {
     // load markets and settings for trade
     const markets = await binanceExchange.loadMarkets()
     const market = await binanceExchange.market(SYMBOL)
-    const set = await binanceExchange.fapiPrivatePostLeverage({
+    const setLeverage = await binanceExchange.fapiPrivatePostLeverage({
         'symbol': market.id,
-        'leverage': LEVERAGE
+        'leverage': LEVERAGE,
     })
+    try {
+        const setMarginType = await binanceExchange.fapiPrivatePostMarginType({
+            'symbol': market.id,
+            'marginType': MARGINTYPE.cross
+        })
+    } catch(error) {
+        // ignore error here
+    }
 
     // get total usdt
     const balance = await binanceExchange.fetchBalance();
     const totalUSDT = balance.total.USDT
+    console.log(`Date: ${Date()}`)
     console.log(`Total USDT: ${totalUSDT}`)
 
     // analytics in 60m
-    const result = await analytics(SYMBOL, '1m', COUNT_DATA_ONE_MINUTE)
-    console.log(result)
-    const average = (result.hight + result.low) / 2
-    console.log(`Hight: ${result.hight} Low: ${result.low} Average: ${average} Current: ${result.lastPrice}`)
+    const result1M = await analytics(SYMBOL, TIME.oneMinute, COUNT_DATA.oneMinute)
+    const result1H = await analytics(SYMBOL, TIME.oneHour, COUNT_DATA.oneHour)
+    const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
 
     // get positions
     const positions = balance.info.positions
@@ -55,7 +78,7 @@ async function getInfo() {
             console.log(position)
             hadPosition = true
             let unrealizedProfit = position.unrealizedProfit
-            if (unrealizedProfit >= PROFIT_PRICE || unrealizedProfit <= -STOP_LOSS) {
+            if (unrealizedProfit >= PROFIT_PRICE || unrealizedProfit >= STOP_LOSS) {
                 binanceExchange.cancelAllOrders(SYMBOL)
             }
             break
@@ -63,7 +86,7 @@ async function getInfo() {
         hadPosition = false
     }
     if (!hadPosition && ENABLE_TRADE) {
-        order(totalUSDT, average, lastPrice)
+        order(totalUSDT, result1M.average, result1M.lastPrice)
     }
 }
 
@@ -82,7 +105,9 @@ async function analytics(SYMBOL, time, COUNT) {
     const hight = Math.max(...priceObject.map(e => e.hight))
     const low = Math.min(...priceObject.map(e => e.low))
     const lastPrice = priceObject[priceResponse.length - 1].close
-    return { hight: hight, low: low, lastPrice: lastPrice }
+    const average = (hight + low) / 2
+    console.log(`Time: ${time} Hight: ${hight} Low: ${low} Average: ${average} Current: ${lastPrice}`)
+    return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
 async function order(totalUSDT, average, lastPrice) {
