@@ -30,6 +30,8 @@ const MARGINTYPE = {
 
 const PROFIT_PRICE = 0.5
 const STOP_LOSS = -0.2
+var lastAmount = null
+var lastDirection = null
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -55,7 +57,13 @@ async function getInfo() {
             'marginType': MARGINTYPE.isolated
         })
     } catch (error) {
-        console.log("setMarginType error", error.name)
+        if (error instanceof ccxt.NetworkError) {
+            console.log(binanceExchange.id, 'setMarginType failed due to a network error:', error.message)
+        } else if (error instanceof ccxt.ExchangeError) {
+            console.log(binanceExchange.id, 'setMarginType failed due to exchange error:', error.message)
+        } else {
+            console.log(binanceExchange.id, 'setMarginType failed with:', error.message)
+        }
     }
 
     // get total usdt
@@ -71,21 +79,29 @@ async function getInfo() {
 
     // get positions
     const positions = balance.info.positions
+    const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
     var hadPosition = false
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
         if (position.positionAmt != 0) {
-            console.log(position)
-            hadPosition = true
             let unrealizedProfit = position.unrealizedProfit
-            if (unrealizedProfit >= PROFIT_PRICE || unrealizedProfit >= STOP_LOSS) {
-                await binanceExchange.cancelAllOrders(SYMBOL)
+            let takeProfit = unrealizedProfit >= PROFIT_PRICE
+            let stopLoss = unrealizedProfit <= STOP_LOSS
+            console.log(`Symbol: ${position.symbol} Profit: ${unrealizedProfit} EntryPrice: ${position.entryPrice} Isolated: ${position.isolated} Leverage: ${position.leverage}X`)
+            console.log(`Symbol: ${position.symbol} takeProfit: ${takeProfit} stopLoss: ${stopLoss}`)
+            hadPosition = true
+            if (takeProfit || stopLoss) {
+                const direction = lastDirection == 'sell' ? 'buy' : 'sell'
+                await order(lastAmount, direction)
             }
             break
         }
     }
     if (!hadPosition && ENABLE_TRADE) {
-        await order(totalUSDT, result1M.average, result1M.lastPrice)
+        const direction = result1M.average > result1M.lastPrice ? 'sell' : 'buy'
+        lastDirection == direction
+        lastAmount = amount
+        await order(lastAmount, lastDirection)
     }
 }
 
@@ -109,15 +125,19 @@ async function analytics(SYMBOL, time, COUNT) {
     return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
-async function order(totalUSDT, average, lastPrice) {
-    const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
-    const direction = lastPrice > average ? 'sell' : 'buy'
+async function order(amount, direction) {
     try {
         console.log(`order with ${SYMBOL} ${direction} ${amount}`)
         const order = await binanceExchange.createOrder(SYMBOL, 'market', direction, amount)
         console.log(order)
     } catch (error) {
-        console.log("order error", error.name)
+        if (error instanceof ccxt.NetworkError) {
+            console.log(binanceExchange.id, 'order failed due to a network error:', error.message)
+        } else if (error instanceof ccxt.ExchangeError) {
+            console.log(binanceExchange.id, 'order failed due to exchange error:', error.message)
+        } else {
+            console.log(binanceExchange.id, 'order failed with:', error.message)
+        }
     }
 }
 
