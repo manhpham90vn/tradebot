@@ -46,8 +46,8 @@ const POSITION_SIDE = {
     SHORT: 'SHORT'
 }
 
-const PROFIT_PRICE = 2 // 2%
-const STOP_LOSS = 1 // 1%
+const PROFIT_PRICE = 5 // 5%
+const STOP_LOSS = 5 // 5%
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
