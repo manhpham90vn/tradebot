@@ -4,9 +4,6 @@ const delay = require('delay')
 const dotenv = require('dotenv')
 const telegramBot = require('node-telegram-bot-api');
 
-// pm2 start index.js
-// pm2 stop index.js
-
 // config env
 dotenv.config()
 
@@ -46,8 +43,8 @@ const POSITION_SIDE = {
     SHORT: 'SHORT'
 }
 
-const PROFIT_PRICE = 5 // 5%
-const STOP_LOSS = 5 // 5%
+const PROFIT_TARGET = 0.5
+const STOP_LOSS_TARGET = -0.3
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -107,10 +104,12 @@ async function getInfo() {
     // get total usdt
     const balance = await binanceExchange.fetchBalance();
     const totalUSDT = balance.total.USDT
+    log(`\n`)
     log(`Date: ${Date()}`)
     log(`Total USDT: ${totalUSDT}`)
 
     // analytics
+    log(`\n`)
     const result1M = await analytics(SYMBOL, TIME.oneMinute, COUNT_DATA.oneMinute)
     const result1H = await analytics(SYMBOL, TIME.oneHour, COUNT_DATA.oneHour)
     const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
@@ -121,28 +120,30 @@ async function getInfo() {
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
         // skip if current position is very small
-        if (position.symbol == market.id && position.initialMargin > 5) {
+        if (position.symbol == market.id && position.initialMargin > 1) {
             let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
-            // calc take profit price and slot loss price based in settings
-            let takeProfitPrice = positionSide == POSITION_SIDE.LONG ? position.entryPrice * (1 + PROFIT_PRICE / 100) : position.entryPrice * (1 - PROFIT_PRICE / 100)
-            let slotLossPrice = positionSide == POSITION_SIDE.LONG ? position.entryPrice * (1 - STOP_LOSS / 100) : position.entryPrice * (1 + STOP_LOSS / 100)
             // condition to trigger take profit or stop loss action
-            let takeProfit = result1M.lastPrice >= takeProfitPrice
-            let stopLoss = result1M.lastPrice <= slotLossPrice
+            let takeProfit = unrealizedProfit >= PROFIT_TARGET
+            let stopLoss = unrealizedProfit <= STOP_LOSS_TARGET
+            log(`\n`)
             log(`Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
-            log(`Symbol: ${position.symbol} - TakeProfitPrice: ${takeProfitPrice} - TakeProfit: ${takeProfit} - StopLosstPrice: ${slotLossPrice} - StopLoss: ${stopLoss}`)
+            log(`Symbol: ${position.symbol} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
             hadPosition = true
             if (takeProfit || stopLoss) {
-                await order(position.initialMargin * position.leverage, SIDE.SELL, positionSide)
+                const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
+                log(`\n`)
+                await order('close', position.initialMargin * position.leverage, side, positionSide)
             }
             break
         }
     }
     if (!hadPosition && ENABLE_TRADE) {
-        const direction = result1M.average > result1M.lastPrice ? POSITION_SIDE.SHORT : POSITION_SIDE.LONG
+        const positionSideOrder = result1M.average > result1M.lastPrice ? POSITION_SIDE.SHORT : POSITION_SIDE.LONG
+        const side = positionSideOrder == POSITION_SIDE.LONG ? SIDE.BUY : SIDE.SELL
         const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
-        await order(amount, SIDE.BUY, direction)
+        log(`\n`)
+        await order('open', amount, side, positionSideOrder)
     }
 }
 
@@ -166,18 +167,17 @@ async function analytics(SYMBOL, time, COUNT) {
     return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
-async function order(amount, side, position_side) {
+async function order(type, amount, side, position_side) {
     try {
-        log(`order with ${SYMBOL} ${amount} ${side} ${position_side}`)
+        log(`${type} order with ${SYMBOL} ${amount} ${side} ${position_side}`)
         const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
-        log(order)
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            log(`order failed due to a network error: ${error.message}`)
+            log(`${type} order failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            log(`order failed due to exchange error: ${error.message}`)
+            log(`${type} order failed due to exchange error: ${error.message}`)
         } else {
-            log(`order failed with: ${error.message}`)
+            log(`${type} order failed with: ${error.message}`)
         }
     }
 }
