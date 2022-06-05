@@ -169,10 +169,9 @@ async function handleAllPosition(positions, market) {
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
         if (position.symbol == market.id && position.initialMargin != 0) {
-            let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
             hadPosition = position.initialMargin > 1
-            if (takeProfitOrStoploss(unrealizedProfit)) {
+            if (takeProfitOrStoploss(position)) {
                 const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
                 log(`\n`)
                 // create close order if needed
@@ -195,7 +194,7 @@ function createPositionSide(priceObject) {
         return POSITION_SIDE.SHORT
     } else if (isObj1Augment == false && isObj2Augment == false && isObj3Augment == false) {
         return POSITION_SIDE.LONG
-    } else if (obj1.data.volume > (obj2.data.volume + obj3.data.volume)) {
+    } else if (obj1.volume > (obj2.volume + obj3.volume)) {
         if (isObj1Augment == true) {
             return POSITION_SIDE.SHORT
         } else {
@@ -207,14 +206,14 @@ function createPositionSide(priceObject) {
 }
 
 // condition to trigger take profit or stop loss action
-function takeProfitOrStoploss(unrealizedProfit) {
-    let takeProfit = unrealizedProfit >= PROFIT_TARGET
-    let stopLoss = unrealizedProfit <= STOP_LOSS_TARGET
+function takeProfitOrStoploss(position) {
+    let takeProfit = position.unrealizedProfit >= PROFIT_TARGET
+    let stopLoss = position.unrealizedProfit <= STOP_LOSS_TARGET
 
     log(`\n`)
-    log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
+    log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${position.positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
     log(`\n`)
-    log(`[POSITION] Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
+    log(`[POSITION] Symbol: ${position.symbol} - Profit: ${position.unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
     
     let result = takeProfit || stopLoss
     return result
