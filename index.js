@@ -43,8 +43,8 @@ const POSITION_SIDE = {
     SHORT: 'SHORT'
 }
 
-const PROFIT_TARGET = 0.5
-const STOP_LOSS_TARGET = -0.3
+const PROFIT_TARGET = 1
+const STOP_LOSS_TARGET = -0.5
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -77,11 +77,11 @@ async function getInfo() {
         })
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            log(`setHedgedMode failed due to a network error: ${error.message}`)
+            log(`[SETUP] setHedgedMode failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            log(`setHedgedMode failed due to exchange error: ${error.message}`)
+            log(`[SETUP] setHedgedMode failed due to exchange error: ${error.message}`)
         } else {
-            log(`setHedgedMode failed with: ${error.message}`)
+            log(`[SETUP] setHedgedMode failed with: ${error.message}`)
         }
     }
 
@@ -93,11 +93,11 @@ async function getInfo() {
         })
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            log(`setMarginType failed due to a network error: ${error.message}`)
+            log(`[SETUP] setMarginType failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            log(`setMarginType failed due to exchange error: ${error.message}`)
+            log(`[SETUP] setMarginType failed due to exchange error: ${error.message}`)
         } else {
-            log(`setMarginType failed with: ${error.message}`)
+            log(`[SETUP] setMarginType failed with: ${error.message}`)
         }
     }
 
@@ -105,8 +105,8 @@ async function getInfo() {
     const balance = await binanceExchange.fetchBalance();
     const totalUSDT = balance.total.USDT
     log(`\n`)
-    log(`Date: ${Date()}`)
-    log(`Total USDT: ${totalUSDT}`)
+    log(`[INFO] Date: ${Date()}`)
+    log(`[INFO] USDT: ${totalUSDT}`)
 
     // analytics
     log(`\n`)
@@ -114,30 +114,10 @@ async function getInfo() {
     const result1H = await analytics(SYMBOL, TIME.oneHour, COUNT_DATA.oneHour)
     const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
 
-    // get positions
-    const positions = balance.info.positions
-    var hadPosition = false
-    for (let i = 0; i < positions.length; i++) {
-        const position = positions[i]
-        // skip if current position is very small
-        if (position.symbol == market.id && position.initialMargin > 1) {
-            let unrealizedProfit = position.unrealizedProfit
-            let positionSide = position.positionSide
-            // condition to trigger take profit or stop loss action
-            let takeProfit = unrealizedProfit >= PROFIT_TARGET
-            let stopLoss = unrealizedProfit <= STOP_LOSS_TARGET
-            log(`\n`)
-            log(`Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
-            log(`Symbol: ${position.symbol} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
-            hadPosition = true
-            if (takeProfit || stopLoss) {
-                const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
-                log(`\n`)
-                await order('close', position.initialMargin * position.leverage, side, positionSide)
-            }
-            break
-        }
-    }
+    // check to create order and close position if needed
+    let hadPosition = await handleAllPosition(balance.info.positions, market)
+
+    // create open order if needed
     if (!hadPosition && ENABLE_TRADE) {
         const positionSideOrder = result1M.average > result1M.lastPrice ? POSITION_SIDE.SHORT : POSITION_SIDE.LONG
         const side = positionSideOrder == POSITION_SIDE.LONG ? SIDE.BUY : SIDE.SELL
@@ -163,23 +143,48 @@ async function analytics(SYMBOL, time, COUNT) {
     const low = Math.min(...priceObject.map(e => e.low))
     const lastPrice = priceObject[priceResponse.length - 1].close
     const average = (hight + low) / 2
-    log(`Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
+    log(`[ANALYTICS] Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
     return { hight: hight, low: low, average: average, lastPrice: lastPrice }
 }
 
 async function order(type, amount, side, position_side) {
     try {
-        log(`${type} order with ${SYMBOL} ${amount} ${side} ${position_side}`)
+        log(`[ORDER] ${type} order with ${SYMBOL} ${amount} ${side} ${position_side}`)
         const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
-            log(`${type} order failed due to a network error: ${error.message}`)
+            log(`[ORDER] ${type} order failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            log(`${type} order failed due to exchange error: ${error.message}`)
+            log(`[ORDER] ${type} order failed due to exchange error: ${error.message}`)
         } else {
-            log(`${type} order failed with: ${error.message}`)
+            log(`[ORDER] ${type} order failed with: ${error.message}`)
         }
     }
+}
+
+async function handleAllPosition(positions, market) {
+    var hadPosition = false
+    for (let i = 0; i < positions.length; i++) {
+        const position = positions[i]
+        if (position.symbol == market.id) {
+            let unrealizedProfit = position.unrealizedProfit
+            let positionSide = position.positionSide
+            // condition to trigger take profit or stop loss action
+            let takeProfit = unrealizedProfit >= PROFIT_TARGET
+            let stopLoss = unrealizedProfit <= STOP_LOSS_TARGET
+            log(`\n`)
+            log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
+            log(`[POSITION] Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
+            hadPosition = position.initialMargin > 1
+            if (takeProfit || stopLoss) {
+                const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
+                log(`\n`)
+                // create close order if needed
+                await order('close', Math.abs(position.positionAmt), side, positionSide)
+            }
+        }
+    }
+    return hadPosition
 }
 
 function log(message) {
