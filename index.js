@@ -116,10 +116,10 @@ async function getInfo() {
 
     // check to create order and close position if needed
     let hadPosition = await handleAllPosition(balance.info.positions, market)
+    const positionSideOrder = createPositionSide(result1M.data)
 
     // create open order if needed
-    if (!hadPosition && ENABLE_TRADE) {
-        const positionSideOrder = result1M.average > result1M.lastPrice ? POSITION_SIDE.SHORT : POSITION_SIDE.LONG
+    if (!hadPosition && positionSideOrder != null) {
         const side = positionSideOrder == POSITION_SIDE.LONG ? SIDE.BUY : SIDE.SELL
         const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
         log(`\n`)
@@ -144,13 +144,15 @@ async function analytics(SYMBOL, time, COUNT) {
     const lastPrice = priceObject[priceResponse.length - 1].close
     const average = (hight + low) / 2
     log(`[ANALYTICS] Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
-    return { hight: hight, low: low, average: average, lastPrice: lastPrice }
+    return { hight: hight, low: low, average: average, lastPrice: lastPrice, data: priceObject}
 }
 
 async function order(type, amount, side, position_side) {
     try {
         log(`[ORDER] ${type} order with ${SYMBOL} ${amount} ${side} ${position_side}`)
-        const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
+        if (ENABLE_TRADE) {
+            const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
+        }
     } catch (error) {
         if (error instanceof ccxt.NetworkError) {
             log(`[ORDER] ${type} order failed due to a network error: ${error.message}`)
@@ -166,7 +168,7 @@ async function handleAllPosition(positions, market) {
     var hadPosition = false
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
-        if (position.symbol == market.id) {
+        if (position.symbol == market.id && position.initialMargin != 0) {
             let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
             // condition to trigger take profit or stop loss action
@@ -185,6 +187,23 @@ async function handleAllPosition(positions, market) {
         }
     }
     return hadPosition
+}
+
+// logic to long of short
+function createPositionSide(priceObject) {
+    let obj1 = priceObject[priceObject.length - 1]
+    let obj2 = priceObject[priceObject.length - 2]
+    let obj3 = priceObject[priceObject.length - 3]
+    let isObj1Augment = obj1.open > obj1.close
+    let isObj2Augment = obj2.open > obj2.close
+    let isObj3Augment = obj3.open > obj3.close
+    if (isObj1Augment == true && isObj2Augment == true && isObj3Augment == true) {
+        return POSITION_SIDE.SHORT
+    } else if (isObj1Augment == false && isObj2Augment == false && isObj3Augment == false) {
+        return POSITION_SIDE.LONG
+    } else {
+        return null
+    }
 }
 
 function log(message) {
