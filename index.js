@@ -44,7 +44,7 @@ const POSITION_SIDE = {
 }
 
 const PROFIT_TARGET = 1
-const STOP_LOSS_TARGET = -0.5
+const STOP_LOSS_TARGET = -1
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -171,14 +171,8 @@ async function handleAllPosition(positions, market) {
         if (position.symbol == market.id && position.initialMargin != 0) {
             let unrealizedProfit = position.unrealizedProfit
             let positionSide = position.positionSide
-            // condition to trigger take profit or stop loss action
-            let takeProfit = unrealizedProfit >= PROFIT_TARGET
-            let stopLoss = unrealizedProfit <= STOP_LOSS_TARGET
-            log(`\n`)
-            log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
-            log(`[POSITION] Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
             hadPosition = position.initialMargin > 1
-            if (takeProfit || stopLoss) {
+            if (takeProfitOrStoploss(unrealizedProfit)) {
                 const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
                 log(`\n`)
                 // create close order if needed
@@ -201,9 +195,29 @@ function createPositionSide(priceObject) {
         return POSITION_SIDE.SHORT
     } else if (isObj1Augment == false && isObj2Augment == false && isObj3Augment == false) {
         return POSITION_SIDE.LONG
+    } else if (obj1.data.volume > (obj2.data.volume + obj3.data.volume)) {
+        if (isObj1Augment == true) {
+            return POSITION_SIDE.SHORT
+        } else {
+            return POSITION_SIDE.LONG
+        }
     } else {
         return null
     }
+}
+
+// condition to trigger take profit or stop loss action
+function takeProfitOrStoploss(unrealizedProfit) {
+    let takeProfit = unrealizedProfit >= PROFIT_TARGET
+    let stopLoss = unrealizedProfit <= STOP_LOSS_TARGET
+
+    log(`\n`)
+    log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
+    log(`\n`)
+    log(`[POSITION] Symbol: ${position.symbol} - Profit: ${unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
+    
+    let result = takeProfit || stopLoss
+    return result
 }
 
 function log(message) {
