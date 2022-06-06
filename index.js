@@ -139,7 +139,7 @@ async function getInfo() {
     const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
 
     // check to create order and close position if needed
-    let hadPosition = await handleAllPosition(balance.info.positions, market)
+    let hadPosition = await handleAllPosition(balance.info.positions, market, totalUSDT)
     const positionSideOrder = createPositionSide(result1M.data, result1H.data, result4H.data)
 
     // create open order if needed
@@ -177,7 +177,9 @@ async function analytics(SYMBOL, time, COUNT) {
 
 async function order(type, amount, side, position_side) {
     try {
-        log(`[ORDER] ${type} order with ${SYMBOL} ${amount} ${side} ${position_side}`)
+        if (logLevel == LOG.DEBUG) {
+            log(`[ORDER] ${type} order with ${SYMBOL} ${amount} ${side} ${position_side}`)
+        }
         if (ENABLE_TRADE) {
             const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
         }
@@ -198,16 +200,18 @@ async function order(type, amount, side, position_side) {
     }
 }
 
-async function handleAllPosition(positions, market) {
+async function handleAllPosition(positions, market, totalUSDT) {
     var hadPosition = false
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
         if (position.symbol == market.id && position.initialMargin != 0) {
             let positionSide = position.positionSide
             hadPosition = position.initialMargin > 1
-            if (takeProfitOrStoploss(position)) {
+            if (takeProfitOrStoploss(position, totalUSDT)) {
                 const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
-                log(`\n`)
+                if (logLevel == LOG.DEBUG) {
+                    log(`\n`)
+                }
                 // create close order if needed
                 await order('close', Math.abs(position.positionAmt), side, positionSide)
             }
@@ -240,7 +244,7 @@ function createPositionSide(result1M, result1H, result4H) {
 }
 
 // condition to trigger take profit or stop loss action
-function takeProfitOrStoploss(position) {
+function takeProfitOrStoploss(position, totalUSDT) {
     let takeProfit = position.unrealizedProfit >= PROFIT_TARGET
     let stopLoss = position.unrealizedProfit <= STOP_LOSS_TARGET
     let result = takeProfit || stopLoss
