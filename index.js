@@ -43,6 +43,12 @@ const LOG = {
     INFO: 'info'
 }
 
+const COMMAND = {
+    START: 'start',
+    END: 'end',
+    LOG: 'log'
+}
+
 // TODO: change with telegram bot
 var PROFIT_TARGET = 1
 var STOP_LOSS_TARGET = -1
@@ -139,7 +145,7 @@ async function getInfo() {
     const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
 
     // check to create order and close position if needed
-    let hadPosition = await handleAllPosition(balance.info.positions, market, totalUSDT)
+    const hadPosition = await handleAllPosition(balance.info.positions, market, totalUSDT)
     const positionSideOrder = createPositionSide(result1M.data, result1H.data, result4H.data)
 
     // create open order if needed
@@ -205,7 +211,7 @@ async function handleAllPosition(positions, market, totalUSDT) {
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
         if (position.symbol == market.id && position.initialMargin != 0) {
-            let positionSide = position.positionSide
+            const positionSide = position.positionSide
             hadPosition = position.initialMargin > 1
             if (takeProfitOrStoploss(position, totalUSDT)) {
                 const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
@@ -222,12 +228,12 @@ async function handleAllPosition(positions, market, totalUSDT) {
 
 // logic to long of short
 function createPositionSide(result1M, result1H, result4H) {
-    let obj1 = result1M[result1M.length - 1]
-    let obj2 = result1M[result1M.length - 2]
-    let obj3 = result1M[result1M.length - 3]
-    let isObj1Augment = obj1.open > obj1.close
-    let isObj2Augment = obj2.open > obj2.close
-    let isObj3Augment = obj3.open > obj3.close
+    const obj1 = result1M[result1M.length - 1]
+    const obj2 = result1M[result1M.length - 2]
+    const obj3 = result1M[result1M.length - 3]
+    const isObj1Augment = obj1.open > obj1.close
+    const isObj2Augment = obj2.open > obj2.close
+    const isObj3Augment = obj3.open > obj3.close
     if (isObj1Augment == true && isObj2Augment == true && isObj3Augment == true) {
         return POSITION_SIDE.SHORT
     } else if (isObj1Augment == false && isObj2Augment == false && isObj3Augment == false) {
@@ -245,9 +251,9 @@ function createPositionSide(result1M, result1H, result4H) {
 
 // condition to trigger take profit or stop loss action
 function takeProfitOrStoploss(position, totalUSDT) {
-    let takeProfit = position.unrealizedProfit >= PROFIT_TARGET
-    let stopLoss = position.unrealizedProfit <= STOP_LOSS_TARGET
-    let result = takeProfit || stopLoss
+    const takeProfit = position.unrealizedProfit >= PROFIT_TARGET
+    const stopLoss = position.unrealizedProfit <= STOP_LOSS_TARGET
+    const result = takeProfit || stopLoss
     if (logLevel == LOG.DEBUG) {
         log(`\n`)
         log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${position.positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
@@ -284,16 +290,13 @@ function clearLog() {
 
 async function main() {
     bot.on('message', (msg) => {
-        let startCommand = 'start'
-        let endCommand = 'end'
-        let toggleLogCommand = 'log'
-        if (msg.text.toString().toLowerCase().indexOf(startCommand) === 0) {
+        if (msg.text.toString().toLowerCase().indexOf(COMMAND.START) === 0) {
             messageId = msg.chat.id
         }
-        if (msg.text.toString().toLowerCase().indexOf(endCommand) === 0) {
+        if (msg.text.toString().toLowerCase().indexOf(COMMAND.END) === 0) {
             messageId = null
         }
-        if (msg.text.toString().toLowerCase().indexOf(toggleLogCommand) === 0) {
+        if (msg.text.toString().toLowerCase().indexOf(COMMAND.LOG) === 0) {
             logLevel = (logLevel == LOG.INFO) ? LOG.DEBUG : LOG.INFO
         }
     })
