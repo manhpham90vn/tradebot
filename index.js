@@ -50,6 +50,7 @@ const COMMAND = {
 }
 
 // TODO: change with telegram bot
+// global constant
 var PROFIT_TARGET = 1
 var STOP_LOSS_TARGET = -1
 var messageId = null
@@ -59,6 +60,14 @@ var ENABLE_TRADE = true
 var LEVERAGE = 10 // lever in 1x to 125x
 var DELAY = 3000 // 3s
 var logLevel = LOG.DEBUG
+
+// global variable
+var totalUSDT = null
+var market = null
+var result1M = null
+var result1H = null
+var result4H = null
+var positions = null
 
 // api key
 const binanceExchange = new ccxt.binanceusdm({
@@ -75,7 +84,8 @@ async function getInfo() {
     const markets = await binanceExchange.loadMarkets()
 
     // select ${SYMBOL}
-    const market = await binanceExchange.market(SYMBOL)
+    const _market = await binanceExchange.market(SYMBOL)
+    market = _market
 
     // set leverage
     const setLeverage = await binanceExchange.fapiPrivatePostLeverage({
@@ -90,18 +100,15 @@ async function getInfo() {
             symbol: SYMBOL
         })
     } catch (error) {
+        if (logLevel != LOG.DEBUG) {
+            return
+        }
         if (error instanceof ccxt.NetworkError) {
-            if (logLevel == LOG.DEBUG) {
-                log(`[SETUP] setHedgedMode failed due to a network error: ${error.message}`)
-            }
+            log(`[SETUP] setHedgedMode failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            if (logLevel == LOG.DEBUG) {
-                log(`[SETUP] setHedgedMode failed due to exchange error: ${error.message}`)
-            }
+            log(`[SETUP] setHedgedMode failed due to exchange error: ${error.message}`)
         } else {
-            if (logLevel == LOG.DEBUG) {
-                log(`[SETUP] setHedgedMode failed with: ${error.message}`)
-            }
+            log(`[SETUP] setHedgedMode failed with: ${error.message}`)
         }
     }
 
@@ -112,24 +119,21 @@ async function getInfo() {
             'marginType': MARGINTYPE.isolated
         })
     } catch (error) {
+        if (logLevel != LOG.DEBUG) {
+            return
+        }
         if (error instanceof ccxt.NetworkError) {
-            if (logLevel == LOG.DEBUG) {
-                log(`[SETUP] setMarginType failed due to a network error: ${error.message}`)
-            }
+            log(`[SETUP] setMarginType failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            if (logLevel == LOG.DEBUG) {
-                log(`[SETUP] setMarginType failed due to exchange error: ${error.message}`)
-            }
+            log(`[SETUP] setMarginType failed due to exchange error: ${error.message}`)
         } else {
-            if (logLevel == LOG.DEBUG) {
-                log(`[SETUP] setMarginType failed with: ${error.message}`) 
-            }
+            log(`[SETUP] setMarginType failed with: ${error.message}`)
         }
     }
 
     // get total usdt
     const balance = await binanceExchange.fetchBalance();
-    const totalUSDT = balance.total.USDT
+    totalUSDT = balance.total.USDT
     if (logLevel == LOG.DEBUG) {
         log(`\n`)
         log(`[INFO] Date: ${Date()}`)
@@ -140,13 +144,18 @@ async function getInfo() {
     if (logLevel == LOG.DEBUG) {
         log(`\n`)
     }
-    const result1M = await analytics(SYMBOL, TIME.oneMinute, COUNT_DATA.oneMinute)
-    const result1H = await analytics(SYMBOL, TIME.oneHour, COUNT_DATA.oneHour)
-    const result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
+    const _result1M = await analytics(SYMBOL, TIME.oneMinute, COUNT_DATA.oneMinute)
+    result1M = _result1M
+    const _result1H = await analytics(SYMBOL, TIME.oneHour, COUNT_DATA.oneHour)
+    result1H = _result1H
+    const _result4H = await analytics(SYMBOL, TIME.fourHour, COUNT_DATA.fourHour)
+    result4H = _result4H
 
     // check to create order and close position if needed
-    const hadPosition = await handleAllPosition(balance.info.positions, market, totalUSDT)
-    const positionSideOrder = createPositionSide(result1M.data, result1H.data, result4H.data)
+    const _positions = balance.info.positions
+    positions = _positions
+    const hadPosition = await handleAllPosition()
+    const positionSideOrder = createPositionSide()
 
     // create open order if needed
     if (!hadPosition && positionSideOrder != null) {
@@ -190,30 +199,27 @@ async function order(type, amount, side, position_side) {
             const order = await binanceExchange.createOrder(SYMBOL, 'market', side, amount, undefined, { 'positionSide': position_side })
         }
     } catch (error) {
+        if (logLevel != LOG.DEBUG) {
+            return
+        }
         if (error instanceof ccxt.NetworkError) {
-            if (logLevel == LOG.DEBUG) {
-                log(`[ORDER] ${type} order failed due to a network error: ${error.message}`)
-            }
+            log(`[ORDER] ${type} order failed due to a network error: ${error.message}`)
         } else if (error instanceof ccxt.ExchangeError) {
-            if (logLevel == LOG.DEBUG) {
-                log(`[ORDER] ${type} order failed due to exchange error: ${error.message}`)
-            }
+            log(`[ORDER] ${type} order failed due to exchange error: ${error.message}`)
         } else {
-            if (logLevel == LOG.DEBUG) {
-                log(`[ORDER] ${type} order failed with: ${error.message}`)
-            }
+            log(`[ORDER] ${type} order failed with: ${error.message}`)
         }
     }
 }
 
-async function handleAllPosition(positions, market, totalUSDT) {
+async function handleAllPosition() {
     var hadPosition = false
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i]
         if (position.symbol == market.id && position.initialMargin != 0) {
             const positionSide = position.positionSide
             hadPosition = position.initialMargin > 1
-            if (takeProfitOrStoploss(position, totalUSDT)) {
+            if (takeProfitOrStoploss(position)) {
                 const side = positionSide == POSITION_SIDE.LONG ? SIDE.SELL : SIDE.BUY
                 if (logLevel == LOG.DEBUG) {
                     log(`\n`)
@@ -227,17 +233,18 @@ async function handleAllPosition(positions, market, totalUSDT) {
 }
 
 // logic to long of short
-function createPositionSide(result1M, result1H, result4H) {
-    const obj1 = result1M[result1M.length - 1]
-    const obj2 = result1M[result1M.length - 2]
-    const obj3 = result1M[result1M.length - 3]
+function createPositionSide() {
+    const data1M = result1M.data
+    const obj1 = data1M[data1M.length - 1]
+    const obj2 = data1M[data1M.length - 2]
+    const obj3 = data1M[data1M.length - 3]
     const isObj1Augment = obj1.open > obj1.close
     const isObj2Augment = obj2.open > obj2.close
     const isObj3Augment = obj3.open > obj3.close
     if (isObj1Augment == true && isObj2Augment == true && isObj3Augment == true) {
-        return POSITION_SIDE.SHORT
-    } else if (isObj1Augment == false && isObj2Augment == false && isObj3Augment == false) {
         return POSITION_SIDE.LONG
+    } else if (isObj1Augment == false && isObj2Augment == false && isObj3Augment == false) {
+        return POSITION_SIDE.SHORT
     } else if (obj1.volume > (obj2.volume + obj3.volume)) {
         if (isObj1Augment == true) {
             return POSITION_SIDE.SHORT
@@ -250,7 +257,7 @@ function createPositionSide(result1M, result1H, result4H) {
 }
 
 // condition to trigger take profit or stop loss action
-function takeProfitOrStoploss(position, totalUSDT) {
+function takeProfitOrStoploss(position) {
     const takeProfit = position.unrealizedProfit >= PROFIT_TARGET
     const stopLoss = position.unrealizedProfit <= STOP_LOSS_TARGET
     const result = takeProfit || stopLoss
