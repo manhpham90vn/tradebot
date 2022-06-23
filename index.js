@@ -57,7 +57,7 @@ var messageId = null
 var messageToSend = ''
 var SYMBOL = 'GMT/USDT'
 var ENABLE_TRADE = true
-var LEVERAGE = 10 // lever in 1x to 125x
+var LEVERAGE = 15 // lever in 1x to 125x
 var DELAY = 3000 // 3s
 var logLevel = LOG.DEBUG
 
@@ -68,7 +68,8 @@ var result1M = null
 var result1H = null
 var result4H = null
 var positions = null
-
+var countTakeProfit = 0
+var countStoploss = 0
 // api key
 const binanceExchange = new ccxt.binanceusdm({
     apiKey: process.env.APIKEY,
@@ -87,11 +88,23 @@ async function getInfo() {
     const _market = await binanceExchange.market(SYMBOL)
     market = _market
 
-    // set leverage
-    const setLeverage = await binanceExchange.fapiPrivatePostLeverage({
-        'symbol': market.id,
-        'leverage': LEVERAGE,
-    })
+    try {
+        const setLeverage = await binanceExchange.fapiPrivatePostLeverage({
+            'symbol': market.id,
+            'leverage': LEVERAGE,
+        })
+    } catch (error) {
+        if (logLevel != LOG.DEBUG) {
+            return
+        }
+        if (error instanceof ccxt.NetworkError) {
+            log(`[SETUP] setLeverage failed due to a network error: ${error.message}`)
+        } else if (error instanceof ccxt.ExchangeError) {
+            log(`[SETUP] setLeverage failed due to exchange error: ${error.message}`)
+        } else {
+            log(`[SETUP] setLeverage failed with: ${error.message}`)
+        }
+    }
 
     // set hedged mode
     try {
@@ -137,7 +150,8 @@ async function getInfo() {
     if (logLevel == LOG.DEBUG) {
         log(`\n`)
         log(`[INFO] Date: ${Date()}`)
-        log(`[INFO] USDT: ${totalUSDT}`)     
+        log(`[INFO] USDT: ${totalUSDT}`)
+        log(`[INFO] Count TakeProfit : ${countTakeProfit} - Count Stoploss: ${countStoploss}`)
     }
 
     // analytics
@@ -160,7 +174,7 @@ async function getInfo() {
     // create open order if needed
     if (!hadPosition && positionSideOrder != null) {
         const side = positionSideOrder == POSITION_SIDE.LONG ? SIDE.BUY : SIDE.SELL
-        const amount = parseInt(0.95 * totalUSDT * LEVERAGE)
+        const amount = parseInt(0.90 * totalUSDT * LEVERAGE)
         if (logLevel == LOG.DEBUG) {
             log(`\n`)
         }
@@ -185,9 +199,9 @@ async function analytics(SYMBOL, time, COUNT) {
     const lastPrice = priceObject[priceResponse.length - 1].close
     const average = (hight + low) / 2
     if (logLevel == LOG.DEBUG) {
-        log(`[ANALYTICS] Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)       
+        log(`[ANALYTICS] Time: ${time} - Hight: ${hight} - Low: ${low} - Average: ${average} - Current: ${lastPrice}`)
     }
-    return { hight: hight, low: low, average: average, lastPrice: lastPrice, data: priceObject}
+    return { hight: hight, low: low, average: average, lastPrice: lastPrice, data: priceObject }
 }
 
 async function order(type, amount, side, position_side) {
@@ -261,21 +275,28 @@ function takeProfitOrStoploss(position) {
     const takeProfit = position.unrealizedProfit >= PROFIT_TARGET
     const stopLoss = position.unrealizedProfit <= STOP_LOSS_TARGET
     const result = takeProfit || stopLoss
+    if (takeProfit) {
+        countTakeProfit++
+    }
+    if (stopLoss) {
+        countStoploss++
+    }
     if (logLevel == LOG.DEBUG) {
         log(`\n`)
         log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${position.positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
         log(`\n`)
-        log(`[POSITION] Symbol: ${position.symbol} - Profit: ${position.unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`) 
+        log(`[POSITION] Symbol: ${position.symbol} - Profit: ${position.unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
     } else if (logLevel == LOG.INFO) {
         if (result) {
             log(`\n`)
             log(`[INFO] Date: ${Date()}`)
-            log(`[INFO] USDT: ${totalUSDT}`)     
+            log(`[INFO] USDT: ${totalUSDT}`)
+            log(`[INFO] Count TakeProfit : ${countTakeProfit} - Count Stoploss: ${countStoploss}`)
             log(`\n`)
             log(`[POSITION] Symbol: ${position.symbol} - InitialMargin: ${position.initialMargin} - EntryPrice: ${position.entryPrice} - Position Side: ${position.positionSide} - Isolated: ${position.isolated} - Leverage: ${position.leverage}X`)
             log(`\n`)
-            log(`[POSITION] Symbol: ${position.symbol} - Profit: ${position.unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)  
-        } 
+            log(`[POSITION] Symbol: ${position.symbol} - Profit: ${position.unrealizedProfit} - TakeProfit: ${takeProfit} - Profit Target: ${PROFIT_TARGET} - Stoploss: ${stopLoss} - Stoploss Target: ${STOP_LOSS_TARGET}`)
+        }
     }
     return result
 }
